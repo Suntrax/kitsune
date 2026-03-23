@@ -1,4 +1,4 @@
-package com.blissless.manga.ui
+package com.blissless.manga.ui.components
 
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons

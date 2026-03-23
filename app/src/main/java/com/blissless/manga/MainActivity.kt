@@ -1,7 +1,6 @@
 package com.blissless.manga
 
 import android.os.Bundle
-import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -22,17 +21,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.blissless.manga.ui.BottomNavBar
-import com.blissless.manga.ui.ExploreScreen
-import com.blissless.manga.ui.HomeScreen
-import com.blissless.manga.ui.MangaDetailScreen
-import com.blissless.manga.ui.ReaderScreen
-import com.blissless.manga.ui.SearchScreen
+import com.blissless.manga.ui.components.BottomNavBar
+import com.blissless.manga.ui.screens.ExploreScreen
+import com.blissless.manga.ui.screens.HomeScreen
+import com.blissless.manga.ui.screens.MangaDetailScreen
+import com.blissless.manga.ui.screens.ReaderScreen
+import com.blissless.manga.ui.screens.SearchScreen
 import com.blissless.manga.ui.theme.MangaTheme
 import com.blissless.manga.viewmodel.MainViewModel
 import com.blissless.manga.viewmodel.MainViewModelFactory
@@ -183,7 +183,7 @@ fun KitsuneApp() {
                         }
                     }
                 },
-                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter)
+                modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
     }
