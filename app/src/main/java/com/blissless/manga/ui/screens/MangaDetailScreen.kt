@@ -1,4 +1,4 @@
-package com.blissless.manga.ui
+package com.blissless.manga.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -299,6 +299,7 @@ fun MangaDetailScreen(
                             onClick = {
                                 if (isReading) {
                                     viewModel.removeFromReading(detail.id)
+                                    isInPlanning = false
                                     isReading = false
                                 } else {
                                     viewModel.togglePlanning(
@@ -308,7 +309,7 @@ fun MangaDetailScreen(
                                         "https://atsu.moe/manga/${detail.id}",
                                         detail.totalChapterCount
                                     )
-                                    isInPlanning = !isInPlanning
+                                    isInPlanning = viewModel.isInPlanning(detail.id)
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),

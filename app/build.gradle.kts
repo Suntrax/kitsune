@@ -14,11 +14,7 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.blissless.manga"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.blissless.manga"
@@ -38,15 +34,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfigs {
-                create("release") {
-                    keyAlias = localProperties.getProperty("keyAlias")
-                    keyPassword = localProperties.getProperty("keyPassword")
-                    storeFile = file(localProperties.getProperty("keystoreLocation"))
-                    storePassword = localProperties.getProperty("keystorePassword")
-                }
-            }
-            signingConfig = signingConfigs.getByName("release")
+            // Use debug signing for release build until release keys are fixed
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     splits {
@@ -81,7 +70,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.jsoup)
     implementation(libs.gson)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -1,4 +1,4 @@
-package com.blissless.manga.ui
+package com.blissless.manga.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background

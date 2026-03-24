@@ -201,6 +201,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
         trackingManager.removeTracking(mangaId)
         refreshTrackingLists()
     }
+
+    fun addToReading(mangaId: String, title: String, coverUrl: String?, mangaUrl: String, totalChapters: Int) {
+        trackingManager.markAsReading(mangaId, title, coverUrl, mangaUrl, totalChapters)
+        refreshTrackingLists()
+    }
     
     fun togglePlanning(mangaId: String, title: String, coverUrl: String?, mangaUrl: String, totalChapters: Int) {
         if (isInPlanning(mangaId)) {
@@ -422,6 +427,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
             currentMangaTitle = detail.title
             currentMangaCoverUrl = detail.coverUrl
             currentMangaUrl = mangaUrl
+            addToReading(detail.id, detail.title, detail.coverUrl, mangaUrl, detail.totalChapterCount)
             loadChapters(mangaUrl)
         }
     }
