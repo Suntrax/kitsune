@@ -6,10 +6,6 @@ A modern manga reading app for Android.
 ![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)
 ![MinSDK](https://img.shields.io/badge/MinSDK-26-orange.svg)
 
-## Important
-
-I do not host any manga content. All content is sourced from third-party websites.
-
 ## Features
 
 - **Search** - Find manga fromatsu.moe
