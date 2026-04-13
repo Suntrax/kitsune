@@ -99,6 +99,9 @@ fun ReaderScreen(
     
     LaunchedEffect(selectedIndex) {
         isShowingChapterList = selectedIndex < 0
+        if (selectedIndex < 0) {
+            viewModel.refreshTrackingLists()
+        }
     }
     
     LaunchedEffect(chapterImages) {
@@ -189,9 +192,6 @@ fun ReaderScreen(
                                     tint = if (selectedIndex < chapters.size - 1) Color.White else Color.White.copy(alpha = 0.3f)
                                 )
                             }
-                        }
-                        IconButton(onClick = { }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(

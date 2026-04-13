@@ -144,6 +144,7 @@ fun KitsuneApp() {
                         MangaDetailScreen(
                             viewModel = viewModel,
                             onBack = {
+                                viewModel.refreshTrackingLists()
                                 currentScreen = null
                                 viewModel.clearMangaDetail()
                             },

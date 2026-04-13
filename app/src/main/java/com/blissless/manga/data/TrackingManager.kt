@@ -70,7 +70,9 @@ class TrackingManager(context: Context) {
         if (existing != null) {
             val updated = existing.copy(
                 status = ReadingStatus.READING,
-                lastReadTimestamp = System.currentTimeMillis()
+                lastReadTimestamp = System.currentTimeMillis(),
+                currentChapterNumber = existing.currentChapterNumber,
+                currentChapterIndex = existing.currentChapterIndex
             )
             updateTracking(updated)
         } else {
@@ -79,6 +81,7 @@ class TrackingManager(context: Context) {
                 title = title,
                 coverUrl = coverUrl,
                 currentChapterIndex = 0,
+                currentChapterNumber = 0,
                 currentChapterUrl = "",
                 totalChapters = totalChapters,
                 status = ReadingStatus.READING,

@@ -28,9 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,11 +70,8 @@ fun ExploreScreen(
         }
     } else {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 48.dp),
-            contentPadding = PaddingValues(bottom = 80.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 80.dp)
         ) {
             val carouselSections = sections.filter { it.layout == "carousel" }
 
@@ -108,57 +103,36 @@ fun FeaturedCarousel(
     section: HomeSection,
     onMangaClick: (MangaSearchResult) -> Unit
 ) {
-    val pagerState = rememberPagerState(pageCount = { section.items.size })
-    val scope = rememberCoroutineScope()
+    val actualCount = section.items.size
+    val pagerState = rememberPagerState(
+        initialPage = actualCount * 100,
+        pageCount = { actualCount * 200 }
+    )
 
-    LaunchedEffect(pagerState) {
-        var lastPage = pagerState.currentPage
-        while (pagerState.pageCount > 0) {
-            delay(4000)
-            val currentPage = pagerState.currentPage
-            if (currentPage == lastPage) {
-                val nextPage = (currentPage + 1) % pagerState.pageCount
-                pagerState.animateScrollToPage(nextPage)
-                lastPage = nextPage
-            } else {
-                lastPage = currentPage
-            }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(4500)
+            try {
+                pagerState.animateScrollToPage(pagerState.currentPage + 1)
+            } catch (_: Exception) {}
         }
     }
 
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = section.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${section.items.size} items",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-            }
-        }
-
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(280.dp)
+                .height(400.dp)
         ) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                pageSpacing = 0.dp,
+                beyondViewportPageCount = 0
             ) { page ->
-                val manga = section.items[page]
+                val manga = section.items[page % actualCount]
                 FeaturedCard(
                     manga = manga,
                     onClick = { onMangaClick(manga) }
@@ -168,7 +142,7 @@ fun FeaturedCarousel(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        androidx.compose.foundation.layout.Row(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
@@ -181,7 +155,7 @@ fun FeaturedCarousel(
                         .size(8.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(
-                            if (pagerState.currentPage == index) Color(0xFFa855f7)
+                            if (pagerState.currentPage % actualCount == index) Color(0xFFa855f7)
                             else Color.White.copy(alpha = 0.3f)
                         )
                 )
@@ -198,9 +172,8 @@ fun FeaturedCard(
     Card(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(0.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1a1a2e))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {

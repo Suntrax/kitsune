@@ -81,15 +81,30 @@ fun MangaDetailScreen(
     var currentChapter by remember(detail?.id) { mutableStateOf(0) }
     var isDragging by remember { mutableStateOf(false) }
     var fallbackCoverUrl by remember { mutableStateOf<String?>(null) }
-    
-    LaunchedEffect(detail?.id) {
+
+    fun refreshTracking() {
         detail?.id?.let { mangaId -> 
-            isInPlanning = viewModel.isInPlanning(mangaId)
+            viewModel.refreshTrackingLists()
             val tracking = viewModel.getMangaTracking(mangaId)
+            isInPlanning = viewModel.isInPlanning(mangaId)
             isReading = tracking != null && tracking.status == com.blissless.manga.data.ReadingStatus.READING
             currentChapter = tracking?.currentChapterNumber ?: 0
             fallbackCoverUrl = tracking?.coverUrl ?: viewModel.getCurrentMangaCoverUrl()
+            android.util.Log.d("DETAIL", "refreshTracking: mangaId=$mangaId, tracking=$tracking, currentChapterNumber=${tracking?.currentChapterNumber}")
         }
+    }
+    
+    LaunchedEffect(detail?.id) {
+        refreshTracking()
+    }
+
+    LaunchedEffect(isReading, currentChapter) {
+        refreshTracking()
+    }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(200)
+        refreshTracking()
     }
 
     BackHandler {
@@ -273,7 +288,13 @@ fun MangaDetailScreen(
                         modifier = Modifier.padding(16.dp)
                     ) {
                         Button(
-                            onClick = onStartReading,
+                            onClick = {
+                                viewModel.refreshTrackingLists()
+                                val tracking = viewModel.getMangaTracking(detail.id)
+                                currentChapter = tracking?.currentChapterNumber ?: 0
+                                isReading = true
+                                onStartReading()
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFFa855f7)

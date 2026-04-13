@@ -331,7 +331,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         )
                         trackingManager.updateTracking(track)
                         log("TRACK", "Created tracking for chapter ${_selectedChapterIndex.value}")
-                    } else if (existing.currentChapterIndex != _selectedChapterIndex.value) {
+                    } else if (existing.currentChapterIndex != _selectedChapterIndex.value || existing.currentChapterNumber == 0) {
                         trackingManager.updateChapterProgress(mangaId, _selectedChapterIndex.value, chapterNumber, chapter.url)
                         log("TRACK", "Updated to chapter ${_selectedChapterIndex.value}")
                     }
@@ -362,7 +362,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         mangaUrl = currentMangaUrl ?: "https://atsu.moe/manga/$mangaId"
                     )
                     trackingManager.updateTracking(track)
-                } else {
+                } else if (existing.currentChapterIndex != _selectedChapterIndex.value || existing.currentChapterNumber == 0) {
                     trackingManager.updateChapterProgress(mangaId, _selectedChapterIndex.value, chapterNumber, chapter.url)
                 }
                 refreshTrackingLists()
@@ -483,7 +483,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
             val chapter = _chapters.value[index]
             currentMangaId?.let { mangaId ->
                 val tracking = trackingManager.getMangaTracking(mangaId)
-                if (tracking != null && index <= tracking.currentChapterIndex) {
+                if (tracking != null && index < tracking.currentChapterIndex) {
                     _isChapterRead.value = true
                 }
             }
