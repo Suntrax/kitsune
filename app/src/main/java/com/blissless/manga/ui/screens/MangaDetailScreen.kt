@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.BookmarkAdded
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
@@ -61,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.blissless.manga.Screen
 import com.blissless.manga.viewmodel.MainViewModel
 import kotlin.math.abs
 
@@ -69,7 +71,9 @@ import kotlin.math.abs
 fun MangaDetailScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
-    onStartReading: () -> Unit
+    onStartReading: () -> Unit,
+    onOpenReader: () -> Unit,
+    onOpenReaderDirect: () -> Unit
 ) {
     val mangaDetail by viewModel.mangaDetail.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -88,7 +92,8 @@ fun MangaDetailScreen(
             val tracking = viewModel.getMangaTracking(mangaId)
             isInPlanning = viewModel.isInPlanning(mangaId)
             isReading = tracking != null && tracking.status == com.blissless.manga.data.ReadingStatus.READING
-            currentChapter = tracking?.currentChapterNumber ?: 0
+            // Show current chapter number, default to 1 if new
+            currentChapter = maxOf(1, tracking?.currentChapterNumber ?: 1)
             fallbackCoverUrl = tracking?.coverUrl ?: viewModel.getCurrentMangaCoverUrl()
             android.util.Log.d("DETAIL", "refreshTracking: mangaId=$mangaId, tracking=$tracking, currentChapterNumber=${tracking?.currentChapterNumber}")
         }
@@ -289,11 +294,9 @@ fun MangaDetailScreen(
                     ) {
                         Button(
                             onClick = {
-                                viewModel.refreshTrackingLists()
-                                val tracking = viewModel.getMangaTracking(detail.id)
-                                currentChapter = tracking?.currentChapterNumber ?: 0
-                                isReading = true
-                                onStartReading()
+                                viewModel.continueFromCurrentManga {
+                                    onOpenReaderDirect()
+                                }
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
@@ -308,13 +311,31 @@ fun MangaDetailScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (isReading) "Continue Ch ${currentChapter + 1}" else "Start Reading",
+                                text = if (isReading) "Continue Ch $currentChapter" else "Start Reading",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         
                         Spacer(modifier = Modifier.height(8.dp))
+                        
+                        if (isReading) {
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.showChapterListOnly()
+                                    onOpenReader()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = "Select Chapter",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                         
                         OutlinedButton(
                             onClick = {

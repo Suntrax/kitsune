@@ -36,7 +36,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
@@ -55,6 +58,8 @@ import coil.compose.AsyncImage
 import com.blissless.manga.data.MangaSearchResult
 import com.blissless.manga.viewmodel.MainViewModel
 import com.blissless.manga.viewmodel.UiState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -68,21 +73,26 @@ fun SearchScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
+    var searchJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(isActive) {
         if (isActive) {
-            kotlinx.coroutines.delay(100)
+            delay(100)
             focusRequester.requestFocus()
             keyboardController?.show()
         }
     }
 
     LaunchedEffect(searchQuery) {
+        searchJob?.cancel()
         if (searchQuery.length >= 2) {
-            kotlinx.coroutines.delay(300)
+            delay(400)
             if (searchQuery == viewModel.searchQuery.value && searchQuery.length >= 2) {
+                android.util.Log.d("SEARCH", "LaunchedEffect: triggering search for '$searchQuery'")
                 viewModel.search()
             }
+        } else if (searchQuery.isEmpty()) {
+            viewModel.clearSearch()
         }
     }
 

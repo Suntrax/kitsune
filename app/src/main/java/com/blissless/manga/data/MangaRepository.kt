@@ -63,6 +63,15 @@ data class ChapterImages(
     val images: List<String>
 )
 
+data class ChapterInfoWithSplit(
+    val chapters: List<ChapterInfo>,
+    val dbChapters: Int,
+    val dbzChapters: Int
+) {
+    val size: Int get() = chapters.size
+    fun isEmpty() = chapters.isEmpty()
+}
+
 class MangaRepository(private val context: Context) {
 
     private val baseUrl = "https://atsu.moe"
@@ -71,6 +80,8 @@ class MangaRepository(private val context: Context) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+    
+    private val chapterInfoCache = mutableMapOf<String, ChapterInfoWithSplit>()
 
     private fun log(tag: String, msg: String) {
         Log.d("MangaRepo", "[$tag] $msg")
@@ -241,10 +252,19 @@ class MangaRepository(private val context: Context) {
         }
     }
 
-    suspend fun getChapters(mangaUrl: String): Result<List<ChapterInfo>> = withContext(Dispatchers.IO) {
+    suspend fun getChapters(mangaUrl: String): Result<ChapterInfoWithSplit> = withContext(Dispatchers.IO) {
         val mangaId = mangaUrl.substringAfter("/manga/").substringBefore("?")
         val apiUrl = "$baseUrl/api/manga/allChapters?mangaId=$mangaId"
+        
+        chapterInfoCache[apiUrl]?.let { cached ->
+            log("CHAPTERS", "Cache HIT for: $apiUrl")
+            return@withContext Result.success(cached)
+        }
+        log("CHAPTERS", "Cache MISS for: $apiUrl")
+        
         log("CHAPTERS", "API URL: $apiUrl")
+        log("CHAPTERS", "Full manga URL: $mangaUrl")
+        log("CHAPTERS", "Extracted mangaId: $mangaId")
 
         try {
             val request = Request.Builder()
@@ -273,15 +293,83 @@ class MangaRepository(private val context: Context) {
                 }
             }
 
-            // Reverse so Chapter 1 is at top
-            val reversedChapters = chapters.reversed()
+            // Parse chapter titles to detect series split (Dragon Ball vs Dragon Ball Z)
+            val (dbChapters, dbzChapters) = splitDragonBallChapters(chapters)
+            log("CHAPTERS", "Split: DB=${dbChapters.size}, DBZ=${dbzChapters.size}")
             
-            log("CHAPTERS", "Found ${reversedChapters.size} chapters (reversed)")
-            Result.success(reversedChapters)
+            // Only apply custom numbering if this is Dragon Ball (has both series)
+            val displayChapters = if (dbChapters.isNotEmpty() && dbzChapters.isNotEmpty()) {
+                val tempList = mutableListOf<ChapterInfo>()
+                
+                // Add Dragon Ball chapters with adjusted numbering (1 to DB count)
+                dbChapters.sortedBy { it.title }.forEachIndexed { index, chapter ->
+                    tempList.add(ChapterInfo(
+                        url = chapter.url,
+                        title = "Dragon Ball ${index + 1}"
+                    ))
+                }
+                
+                // Add Dragon Ball Z chapters starting from 195
+                val dbzStartNumber = dbChapters.size + 1
+                dbzChapters.sortedBy { it.title }.forEachIndexed { index, chapter ->
+                    tempList.add(ChapterInfo(
+                        url = chapter.url,
+                        title = "Dragon Ball Z ${dbzStartNumber + index}"
+                    ))
+                }
+                
+                log("CHAPTERS", "Display chapters: ${tempList.size} total (DB/DBZ split)")
+                tempList.reversed()
+            } else {
+                // Not Dragon Ball, return original chapters unchanged
+                log("CHAPTERS", "Using original chapter titles")
+                chapters.reversed()
+            }
+            
+            log("CHAPTERS", "First: ${displayChapters.firstOrNull()?.title}, Last: ${displayChapters.lastOrNull()?.title}")
+            log("CHAPTERS", "Found ${displayChapters.size} chapters")
+            
+            val chapterInfo = ChapterInfoWithSplit(displayChapters, dbChapters.size, dbzChapters.size)
+            chapterInfoCache[apiUrl] = chapterInfo
+            log("CHAPTERS", "Cached chapter info for: $apiUrl")
+            Result.success(chapterInfo)
         } catch (e: Exception) {
             log("CHAPTERS", "Error: ${e.message}")
             Result.failure(e)
         }
+    }
+
+    private fun splitDragonBallChapters(chapters: List<ChapterInfo>): Pair<List<ChapterInfo>, List<ChapterInfo>> {
+        // Check if this is Dragon Ball by looking at chapter titles
+        val hasDbz = chapters.any { chapter ->
+            val title = chapter.title ?: ""
+            title.startsWith("Dragon Ball Z", ignoreCase = true) ||
+            title.startsWith("DBZ", ignoreCase = true) ||
+            title.matches(Regex("^DBZ\\s*\\d+", RegexOption.IGNORE_CASE))
+        }
+        
+        // If no Dragon Ball Z chapters found, return original chapters unchanged
+        if (!hasDbz) {
+            return Pair(chapters, emptyList())
+        }
+        
+        val dbChapters = mutableListOf<ChapterInfo>()
+        val dbzChapters = mutableListOf<ChapterInfo>()
+        
+        for (chapter in chapters) {
+            val title = chapter.title ?: ""
+            val isDbz = title.startsWith("Dragon Ball Z", ignoreCase = true) ||
+                      title.startsWith("DBZ", ignoreCase = true) ||
+                      (title.matches(Regex("^DBZ\\s*\\d+", RegexOption.IGNORE_CASE)))
+            
+            if (isDbz && !title.startsWith("Dragon Ball Super", ignoreCase = true)) {
+                dbzChapters.add(chapter)
+            } else {
+                dbChapters.add(chapter)
+            }
+        }
+        
+        return Pair(dbChapters, dbzChapters)
     }
 
     suspend fun getMangaDetails(mangaUrl: String): Result<MangaDetail> = withContext(Dispatchers.IO) {

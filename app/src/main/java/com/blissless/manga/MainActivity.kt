@@ -151,6 +151,12 @@ fun KitsuneApp() {
                             onStartReading = {
                                 viewModel.startReading()
                                 currentScreen = Screen.Reader
+                            },
+                            onOpenReader = {
+                                currentScreen = Screen.Reader
+                            },
+                            onOpenReaderDirect = {
+                                currentScreen = Screen.Reader
                             }
                         )
                     }
