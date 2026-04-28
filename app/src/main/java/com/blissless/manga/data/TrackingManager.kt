@@ -65,14 +65,16 @@ class TrackingManager(context: Context) {
         }
     }
 
-    fun markAsReading(mangaId: String, title: String, coverUrl: String?, mangaUrl: String, totalChapters: Int) {
+    fun markAsReading(mangaId: String, title: String, coverUrl: String?, mangaUrl: String, totalChapters: Int, resetProgress: Boolean = false) {
         val existing = getMangaTracking(mangaId)
         if (existing != null) {
             val updated = existing.copy(
                 status = ReadingStatus.READING,
                 lastReadTimestamp = System.currentTimeMillis(),
-                currentChapterNumber = existing.currentChapterNumber,
-                currentChapterIndex = existing.currentChapterIndex
+                currentChapterNumber = if (resetProgress) 0 else existing.currentChapterNumber,
+                currentChapterIndex = if (resetProgress) 0 else existing.currentChapterIndex,
+                currentChapterUrl = if (resetProgress) "" else existing.currentChapterUrl,
+                totalChapters = totalChapters
             )
             updateTracking(updated)
         } else {

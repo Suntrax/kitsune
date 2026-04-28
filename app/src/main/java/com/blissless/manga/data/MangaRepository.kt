@@ -669,6 +669,7 @@ class MangaRepository(private val context: Context) {
             val webView = createWebView()
             var completed = false
             var step = 0
+            var allFoundImages = mutableListOf<String>()
 
             fun runImageExtraction(view: WebView?) {
                 if (completed || view == null) return
@@ -677,6 +678,7 @@ class MangaRepository(private val context: Context) {
                     (function() {
                         var images = [];
                         var seen = {};
+                        var allImgData = [];
                         
                         function getImgSrc(img) {
                             return img.currentSrc || img.src || 
@@ -719,12 +721,25 @@ class MangaRepository(private val context: Context) {
                                     src = getImgSrc(item);
                                 }
                                 
+                                var w = item.naturalWidth || item.getAttribute('width') || 0;
+                                var h = item.naturalHeight || item.getAttribute('height') || 0;
+                                
+                                // Store all potential images for debug
+                                allImgData.push({
+                                    src: src,
+                                    w: w,
+                                    h: h,
+                                    isManga: isMangaImage(src),
+                                    isBanner: isBannerOrAvatar(src),
+                                    isNumber: filenameIsNumber(src),
+                                    small: (w && h && (w < 100 || h < 100)),
+                                    hasHttp: src.startsWith('http')
+                                });
+                                
                                 if (!isMangaImage(src)) return;
                                 if (isBannerOrAvatar(src)) return;
                                 if (!filenameIsNumber(src)) return;
                                 
-                                var w = item.naturalWidth || item.getAttribute('width') || 0;
-                                var h = item.naturalHeight || item.getAttribute('height') || 0;
                                 if (w && h && w < 100 || h < 100) return;
                                 
                                 if (!src.startsWith('http')) {
@@ -736,6 +751,12 @@ class MangaRepository(private val context: Context) {
                                 
                                 images.push(src);
                             });
+                            
+// Debug info
+                            console.log('IMG_DEBUG: total scanned=' + allImgData.length + ', filtered=' + images.length);
+                            console.log('IMG_DEBUG: first few=' + JSON.stringify(allImgData.slice(0, 5)));
+                            
+                            return images;
                         }
                         
                         scanImages();
@@ -759,7 +780,7 @@ class MangaRepository(private val context: Context) {
                                 completed = true
                                 destroyWebView(webView)
                                 continuation.resume(Result.success(ChapterImages(chapterUrl, images)))
-                            } else if (step < 3) {
+                            } else if (step < 5) {
                                 step++
                                 log("IMAGES", "No images yet, step $step, scrolling...")
                                 val scrollJs = """
@@ -772,7 +793,7 @@ class MangaRepository(private val context: Context) {
                                     })();
                                 """.trimIndent()
                                 webView.evaluateJavascript(scrollJs, null)
-                                mainHandler.postDelayed({ runImageExtraction(webView) }, 1500)
+                                mainHandler.postDelayed({ runImageExtraction(webView) }, 2000)
                             } else {
                                 completed = true
                                 destroyWebView(webView)

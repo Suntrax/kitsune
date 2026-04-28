@@ -92,8 +92,11 @@ fun MangaDetailScreen(
             val tracking = viewModel.getMangaTracking(mangaId)
             isInPlanning = viewModel.isInPlanning(mangaId)
             isReading = tracking != null && tracking.status == com.blissless.manga.data.ReadingStatus.READING
-            // Show current chapter number, default to 1 if new
-            currentChapter = maxOf(1, tracking?.currentChapterNumber ?: 1)
+            currentChapter = if (tracking != null && tracking.currentChapterNumber > 0) {
+                tracking.currentChapterNumber + 1
+            } else {
+                1
+            }
             fallbackCoverUrl = tracking?.coverUrl ?: viewModel.getCurrentMangaCoverUrl()
             android.util.Log.d("DETAIL", "refreshTracking: mangaId=$mangaId, tracking=$tracking, currentChapterNumber=${tracking?.currentChapterNumber}")
         }
@@ -319,7 +322,7 @@ fun MangaDetailScreen(
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        if (isReading) {
+                        if (isReading || isInPlanning) {
                             OutlinedButton(
                                 onClick = {
                                     viewModel.showChapterListOnly()

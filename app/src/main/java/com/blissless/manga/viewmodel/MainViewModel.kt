@@ -14,6 +14,7 @@ import com.blissless.manga.data.MangaSearchResult
 import com.blissless.manga.data.MangaTrack
 import com.blissless.manga.data.ReadingStatus
 import com.blissless.manga.data.TrackingManager
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -167,9 +168,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
             chaptersResult.fold(
                 onSuccess = { chapterData ->
                     val chapterList = chapterData.chapters
-                    val currentChapterIndex = firstManga.currentChapterIndex
-                    Log.d("PRELOAD", "Found ${chapterList.size} chapters (DB: ${chapterData.dbChapters}, DBZ: ${chapterData.dbzChapters}), current: $currentChapterIndex")
-                    val chapter = chapterList.getOrNull(currentChapterIndex)
+                    val savedIndex = firstManga.currentChapterIndex
+                    val nextChapterIndex = if (savedIndex > 0) savedIndex + 1 else 0
+                    Log.d("PRELOAD", "Found ${chapterList.size} chapters (DB: ${chapterData.dbChapters}, DBZ: ${chapterData.dbzChapters}), target: $nextChapterIndex (saved=$savedIndex)")
+                    val chapter = chapterList.getOrNull(nextChapterIndex)
                     if (chapter != null) {
                         val cached = chapterImageCache[chapter.url]
                         if (cached != null) {
@@ -189,7 +191,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             )
                         }
                     } else {
-                        Log.d("PRELOAD", "No chapter at index $currentChapterIndex")
+                        Log.d("PRELOAD", "No chapter at index $nextChapterIndex")
                     }
                 },
                 onFailure = { e ->
@@ -219,8 +221,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
         refreshTrackingLists()
     }
 
-    fun addToReading(mangaId: String, title: String, coverUrl: String?, mangaUrl: String, totalChapters: Int) {
-        trackingManager.markAsReading(mangaId, title, coverUrl, mangaUrl, totalChapters)
+    fun addToReading(mangaId: String, title: String, coverUrl: String?, mangaUrl: String, totalChapters: Int, resetProgress: Boolean = false) {
+        trackingManager.markAsReading(mangaId, title, coverUrl, mangaUrl, totalChapters, resetProgress)
         refreshTrackingLists()
     }
     
@@ -301,21 +303,26 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     }
                     
                     val safeChapterIndex = currentPosition.coerceIn(0, chapterList.lastIndex)
-                    val nextToRead = safeChapterIndex + 1
+                    val nextToRead = if (track.currentChapterNumber > 0) safeChapterIndex + 1 else 0
                     
                     _readChapterIndices.value = (0 until safeChapterIndex).toSet()
-                    _nextChapterToRead.value = safeChapterIndex + 1
-                    Log.d("CONTINUE", "Final: current=$currentPosition safe=$safeChapterIndex")
+                    _nextChapterToRead.value = nextToRead + 1
+                    Log.d("CONTINUE", "Final: current=$currentPosition safe=$safeChapterIndex next=$nextToRead, chapterNumber=${track.currentChapterNumber}")
                     
-                    // Load the current chapter
-                    val chapter = chapterList.getOrNull(safeChapterIndex)
+                    // Load the next chapter
+                    val chapter = chapterList.getOrNull(nextToRead)
                     if (chapter != null) {
-                        _selectedChapterIndex.value = safeChapterIndex
+                        _selectedChapterIndex.value = nextToRead
                         _isChapterRead.value = safeChapterIndex > 0
                         _chapterImages.value = UiState.Loading
                         loadChapterImages(chapter.url)
-                        log("READY", "Loading current chapter: ${chapter.title}")
+                        log("READY", "Loading next chapter: ${chapter.title}")
                         onReady()
+                    } else {
+                        // At last chapter, load current
+                        _selectedChapterIndex.value = safeChapterIndex
+                        _chapterImages.value = UiState.Loading
+                        loadChapterImages(chapterList[safeChapterIndex].url)
                     }
                 },
                 onFailure = {
@@ -336,11 +343,16 @@ class MainViewModel(private val context: Context) : ViewModel() {
         _chapterImages.value = UiState.Idle
         
         val tracking = trackingManager.getMangaTracking(mangaId)
-        val savedIndex = tracking?.currentChapterIndex ?: 0
+        val savedIndex = if (tracking?.status == com.blissless.manga.data.ReadingStatus.READING) {
+            tracking.currentChapterIndex
+        } else {
+            0
+        }
+        val nextChapterIndex = if (savedIndex > 0) savedIndex + 1 else 0
 
         val chapterList = _chapters.value
         if (chapterList.isNotEmpty()) {
-            val safeChapterIndex = savedIndex.coerceIn(0, chapterList.lastIndex.coerceAtLeast(0))
+            val safeChapterIndex = nextChapterIndex.coerceIn(0, chapterList.lastIndex.coerceAtLeast(0))
             _readChapterIndices.value = (0 until safeChapterIndex).toSet()
             _nextChapterToRead.value = safeChapterIndex + 1
             
@@ -362,7 +374,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     val chapterList = chapterData.chapters
                     _chapters.value = chapterList
                     
-                    val safeChapterIndex = savedIndex.coerceIn(0, chapterList.lastIndex.coerceAtLeast(0))
+                    val safeChapterIndex = nextChapterIndex.coerceIn(0, chapterList.lastIndex.coerceAtLeast(0))
                     
                     _readChapterIndices.value = (0 until safeChapterIndex).toSet()
                     _nextChapterToRead.value = safeChapterIndex + 1
@@ -563,27 +575,24 @@ class MainViewModel(private val context: Context) : ViewModel() {
             currentMangaCoverUrl = detail.coverUrl
             val mangaUrl = currentMangaUrl ?: "https://atsu.moe/manga/$baseMangaId"
             
-            // Check for saved progress BEFORE resetting
+            // Check for saved progress - only if in READING status and valid
             val existingTracking = trackingManager.getMangaTracking(mangaId)
-            val savedIndex = existingTracking?.currentChapterIndex ?: 0
-            
-// Set state to load saved chapter
-            if (savedIndex > 0) {
-                _selectedChapterIndex.value = savedIndex  // Will be used to load saved
-                _readChapterIndices.value = (0 until savedIndex).toSet()
-                _nextChapterToRead.value = savedIndex + 1
-                Log.d("START", "Continuing from index: $savedIndex")
+            val savedIndex = if (existingTracking?.status == com.blissless.manga.data.ReadingStatus.READING && 
+                existingTracking.currentChapterIndex > 0) {
+                existingTracking.currentChapterIndex
             } else {
-                // Start new from beginning
-                _readChapterIndices.value = emptySet()
-                _nextChapterToRead.value = 0
-                _selectedChapterIndex.value = 0
-                Log.d("START", "Starting fresh at chapter 0")
+                0
             }
+            
+            // Start new - always reset to beginning when pressing Start Reading
+            _readChapterIndices.value = emptySet()
+            _nextChapterToRead.value = 0
+            _selectedChapterIndex.value = 0
+            Log.d("START", "Starting fresh at chapter 0 (savedIndex was $savedIndex)")
             
             _isLoading.value = true  // Show loading screen
             
-            addToReading(mangaId, detail.title, detail.coverUrl, mangaUrl, detail.totalChapterCount)
+            addToReading(mangaId, detail.title, detail.coverUrl, mangaUrl, detail.totalChapterCount, resetProgress = true)
             loadChapters(mangaUrl)
         }
     }
@@ -592,8 +601,12 @@ class MainViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             _mangaDetail.value = null
-            val result = repository.getMangaDetails(mangaUrl)
-            result.fold(
+            
+            // Load both detail and chapters in parallel, use chapters to get correct total
+            val detailDeferred = async { repository.getMangaDetails(mangaUrl) }
+            val chaptersDeferred = async { repository.getChapters(mangaUrl) }
+            
+            detailDeferred.await().fold(
                 onSuccess = { mangaDetail ->
                     val detailWithCover = mangaDetail.copy(
                         coverUrl = searchCoverUrl ?: mangaDetail.coverUrl
@@ -605,13 +618,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     log("ERROR", "Failed: ${it.message}")
                 }
             )
-            _isLoading.value = false
-        }
-        
-        // Also load chapters to get correct count (handles DB/DBZ combined)
-        viewModelScope.launch {
-            val chaptersResult = repository.getChapters(mangaUrl)
-            chaptersResult.fold(
+            
+            // Now update with real chapter count from chapters API
+            chaptersDeferred.await().fold(
                 onSuccess = { chapterData ->
                     val total = chapterData.dbChapters + chapterData.dbzChapters
                     _mangaDetail.value?.let { detail ->
@@ -621,6 +630,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 },
                 onFailure = { }
             )
+            
+            _isLoading.value = false
         }
     }
 
@@ -658,11 +669,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     trackingManager.updateTotalChapters(uniqueMangaId, totalChapters)
                     refreshTrackingLists()
                     
-                    // Use the saved index that was set in startReading/continue
+                    // Use the index that was set in startReading/continue
                     val savedIndex = _selectedChapterIndex.value
                     
                     if (savedIndex > 0 && savedIndex < chapterList.size) {
-                        Log.d("CHAPTERS", "Loading saved chapter: $savedIndex")
+                        Log.d("CHAPTERS", "Loading chapter: $savedIndex")
                         selectChapter(savedIndex)
                     } else if (savedIndex == 0) {
                         // Start from beginning (chapter 0)
