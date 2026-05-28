@@ -14,16 +14,20 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.blissless.manga"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.blissless.manga"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val anilistApiKey = localProperties.getProperty("CLIENT_ID_ANILIST")
+
+        buildConfigField("String", "CLIENT_ID_ANILIST", "\"$anilistApiKey\"")
     }
 
     buildTypes {
@@ -48,6 +52,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

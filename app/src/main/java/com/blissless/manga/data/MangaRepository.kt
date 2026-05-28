@@ -402,7 +402,15 @@ class MangaRepository(private val context: Context) {
             val otherNamesArray = mangaPage.optJSONArray("otherNames")
             if (otherNamesArray != null) {
                 for (i in 0 until otherNamesArray.length()) {
-                    otherNamesList.add(otherNamesArray.getString(i))
+                    val item = otherNamesArray[i]
+                    val name = if (item is JSONObject) {
+                        item.optString("name", item.optString("id", ""))
+                    } else {
+                        item.toString()
+                    }
+                    if (name.isNotBlank() && name != "null") {
+                        otherNamesList.add(name)
+                    }
                 }
             }
 
@@ -442,7 +450,15 @@ class MangaRepository(private val context: Context) {
             val authorsArray = mangaPage.optJSONArray("authors")
             if (authorsArray != null) {
                 for (i in 0 until authorsArray.length()) {
-                    authorsList.add(authorsArray.getString(i))
+                    val item = authorsArray[i]
+                    val name = if (item is JSONObject) {
+                        item.optString("name", item.optString("id", ""))
+                    } else {
+                        item.toString()
+                    }
+                    if (name.isNotBlank() && name != "null") {
+                        authorsList.add(name)
+                    }
                 }
             }
 

@@ -92,6 +92,7 @@ fun ReaderScreen(
     val isChapterRead by viewModel.isChapterRead.collectAsState()
     val readChapterIndices by viewModel.readChapterIndices.collectAsState()
     val nextChapterToRead by viewModel.nextChapterToRead.collectAsState()
+    val syncThreshold by viewModel.anilistSyncThreshold.collectAsState()
 
     val listState = rememberLazyListState()
     var isShowingChapterList by remember { mutableStateOf(selectedIndex < 0) }
@@ -218,21 +219,19 @@ fun ReaderScreen(
                                 .height(3.dp)
                                 .background(Color(0xFFa855f7))
                         )
-                        if (!isChapterRead) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(syncThreshold / 100f)
+                                .fillMaxHeight()
+                                .background(Color.Transparent)
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
+                                    .align(Alignment.CenterEnd)
+                                    .width(2.dp)
                                     .fillMaxHeight()
-                                    .background(Color.Transparent)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.CenterEnd)
-                                        .width(30.dp)
-                                        .fillMaxHeight()
-                                        .background(Color(0xFF22c55e).copy(alpha = 0.5f))
-                                )
-                            }
+                                    .background(Color.White.copy(alpha = 0.8f))
+                            )
                         }
                     }
                 }

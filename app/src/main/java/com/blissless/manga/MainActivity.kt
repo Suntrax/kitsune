@@ -1,57 +1,84 @@
 package com.blissless.manga
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
+import androidx.activity.viewModels
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.unit.dp
 import com.blissless.manga.ui.components.BottomNavBar
 import com.blissless.manga.ui.screens.ExploreScreen
 import com.blissless.manga.ui.screens.HomeScreen
 import com.blissless.manga.ui.screens.MangaDetailScreen
 import com.blissless.manga.ui.screens.ReaderScreen
 import com.blissless.manga.ui.screens.SearchScreen
+import com.blissless.manga.ui.screens.SettingsScreen
 import com.blissless.manga.ui.theme.MangaTheme
 import com.blissless.manga.viewmodel.MainViewModel
 import com.blissless.manga.viewmodel.MainViewModelFactory
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val viewModel: MainViewModel by viewModels {
+        MainViewModelFactory(applicationContext)
+    }
+    private var isAniListAuthHandled = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleAuthCallback(intent)
         setContent {
             MangaTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    KitsuneApp()
+                    KitsuneApp(viewModel = viewModel)
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthCallback(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        handleAuthCallback(intent)
+    }
+
+    private fun handleAuthCallback(intent: Intent?) {
+        if (intent == null) return
+        val uriString = intent.dataString ?: return
+        if (!isAniListAuthHandled && uriString.startsWith("animescraper://success") && uriString.contains("access_token=")) {
+            isAniListAuthHandled = true
+            viewModel.handleAuthRedirect(intent)
+        }
+    }
+
+    fun resetAuthFlags() {
+        isAniListAuthHandled = false
     }
 }
 
@@ -60,54 +87,39 @@ sealed class Screen {
     data object Reader : Screen()
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun KitsuneApp() {
+fun KitsuneApp(viewModel: MainViewModel) {
     val context = LocalContext.current
-    val viewModel: MainViewModel = viewModel(
-        factory = MainViewModelFactory(context.applicationContext)
-    )
 
     var currentScreen by remember { mutableStateOf<Screen?>(null) }
-    
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
-    var lastActivePage by remember { mutableIntStateOf(1) }
+    var currentNavRoute by remember { mutableStateOf("home") }
     val keyboardController = LocalSoftwareKeyboardController.current
-    
-    LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage != 2) {
-            keyboardController?.hide()
-        }
-        if (pagerState.currentPage == 2) {
-            lastActivePage = 2
+
+    // Navigate to settings when AniList login completes
+    val anilistUsername by viewModel.anilistUsername.collectAsState()
+    LaunchedEffect(anilistUsername) {
+        if (anilistUsername != null && currentScreen == null) {
+            currentNavRoute = "settings"
         }
     }
-    val scope = rememberCoroutineScope()
-    val currentNavRoute by remember {
-        derivedStateOf {
-            when (pagerState.currentPage) {
-                0 -> "explore"
-                1 -> "home"
-                else -> "search"
-            }
+
+    LaunchedEffect(currentNavRoute) {
+        if (currentNavRoute != "search") {
+            keyboardController?.hide()
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            beyondViewportPageCount = 0
-        ) { page ->
-            when (page) {
-                0 -> ExploreScreen(
+        Crossfade(targetState = currentNavRoute, label = "nav") { route ->
+            when (route) {
+                "explore" -> ExploreScreen(
                     viewModel = viewModel,
                     onMangaSelected = { manga ->
                         viewModel.selectManga(manga)
                         currentScreen = Screen.Detail
                     }
                 )
-                1 -> HomeScreen(
+                "home" -> HomeScreen(
                     viewModel = viewModel,
                     onMangaSelected = { manga ->
                         viewModel.selectManga(manga)
@@ -117,28 +129,22 @@ fun KitsuneApp() {
                         viewModel.continueFromTracking(track) {
                             currentScreen = Screen.Reader
                         }
-                    },
-                    onRemoveFromReading = { track ->
-                        viewModel.removeFromReading(track.mangaId)
                     }
                 )
-                else -> SearchScreen(
+                "search" -> SearchScreen(
                     viewModel = viewModel,
                     onMangaSelected = { manga ->
                         viewModel.selectManga(manga)
                         currentScreen = Screen.Detail
                     },
-                    isActive = pagerState.currentPage == 2
+                    isActive = currentNavRoute == "search"
                 )
+                "settings" -> SettingsScreen(viewModel = viewModel)
             }
         }
 
         if (currentScreen != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF121212))
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 when (currentScreen) {
                     is Screen.Detail -> {
                         MangaDetailScreen(
@@ -157,12 +163,15 @@ fun KitsuneApp() {
                             },
                             onOpenReaderDirect = {
                                 currentScreen = Screen.Reader
+                            },
+                            onOpenChapterSelect = {
+                                currentScreen = Screen.Reader
                             }
                         )
                     }
 
                     is Screen.Reader -> {
-                        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                        Box(modifier = Modifier.fillMaxSize()) {
                             ReaderScreen(
                                 viewModel = viewModel,
                                 onBack = {
@@ -181,16 +190,10 @@ fun KitsuneApp() {
         if (currentScreen == null) {
             BottomNavBar(
                 currentRoute = currentNavRoute,
-                onNavigate = { route ->
-                    scope.launch {
-                        when (route) {
-                            "explore" -> pagerState.animateScrollToPage(0)
-                            "home" -> pagerState.animateScrollToPage(1)
-                            "search" -> pagerState.animateScrollToPage(2)
-                        }
-                    }
-                },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                onNavigate = { route -> currentNavRoute = route },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
             )
         }
     }

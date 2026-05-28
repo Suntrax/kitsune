@@ -51,8 +51,7 @@ import com.blissless.manga.viewmodel.MainViewModel
 fun HomeScreen(
     viewModel: MainViewModel,
     onMangaSelected: (MangaSearchResult) -> Unit,
-    onContinueReading: (MangaTrack) -> Unit,
-    onRemoveFromReading: (MangaTrack) -> Unit
+    onContinueReading: (MangaTrack) -> Unit
 ) {
     val continueReading by viewModel.continueReading.collectAsState()
     val planningToRead by viewModel.planningToRead.collectAsState()
@@ -85,9 +84,6 @@ fun HomeScreen(
                     },
                     onPlayClick = { track ->
                         onContinueReading(track)
-                    },
-                    onRemoveClick = { track ->
-                        onRemoveFromReading(track)
                     }
                 )
             }
@@ -256,8 +252,9 @@ fun TrackingCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(2.dp))
+                val displayTotal = if (track.totalChapters > 0) track.totalChapters.toString() else "?"
                 Text(
-                    text = "Ch. ${if (track.currentChapterNumber > 0) track.currentChapterNumber else track.currentChapterIndex + 1}/${track.totalChapters}",
+                    text = "Ch. ${if (track.currentChapterNumber > 0) track.currentChapterNumber else track.currentChapterIndex + 1}/$displayTotal",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFFa855f7)
                 )

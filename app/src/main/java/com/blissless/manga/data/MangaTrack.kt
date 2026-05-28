@@ -10,11 +10,14 @@ data class MangaTrack(
     val totalChapters: Int,
     val status: ReadingStatus,
     val lastReadTimestamp: Long,
-    val mangaUrl: String
+    val mangaUrl: String,
+    val anilistMediaId: Int? = null
 )
 
 enum class ReadingStatus {
     READING,
     PLANNING,
-    COMPLETED
+    COMPLETED,
+    ON_HOLD,
+    DROPPED
 }

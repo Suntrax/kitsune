@@ -140,6 +140,17 @@ class TrackingManager(context: Context) {
         updateTracking(updated)
     }
 
+    fun updateTrackingStatus(mangaId: String, status: ReadingStatus) {
+        val existing = getMangaTracking(mangaId)
+        if (existing != null) {
+            val updated = existing.copy(
+                status = status,
+                lastReadTimestamp = System.currentTimeMillis()
+            )
+            updateTracking(updated)
+        }
+    }
+
     fun updateTotalChapters(mangaId: String, totalChapters: Int) {
         val existing = getMangaTracking(mangaId)
         if (existing != null) {

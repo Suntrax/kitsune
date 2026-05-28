@@ -1,10 +1,13 @@
 package com.blissless.manga.viewmodel
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.blissless.manga.data.AniListManager
 import com.blissless.manga.data.ChapterInfo
 import com.blissless.manga.data.ChapterImages
 import com.blissless.manga.data.HomeSection
@@ -13,8 +16,11 @@ import com.blissless.manga.data.MangaRepository
 import com.blissless.manga.data.MangaSearchResult
 import com.blissless.manga.data.MangaTrack
 import com.blissless.manga.data.ReadingStatus
+import com.blissless.manga.data.SettingsManager
 import com.blissless.manga.data.TrackingManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +37,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
     private val repository = MangaRepository(context)
     private val trackingManager = TrackingManager(context)
+    private val anilistManager = AniListManager(context)
+    private val settingsManager = SettingsManager(context)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -85,6 +93,22 @@ class MainViewModel(private val context: Context) : ViewModel() {
     private var currentMangaCoverUrl: String? = null
     private var currentMangaUrl: String? = null
 
+    // AniList state
+    private val _anilistUsername = MutableStateFlow<String?>(null)
+    val anilistUsername: StateFlow<String?> = _anilistUsername.asStateFlow()
+
+    private val _isAniListSyncing = MutableStateFlow(false)
+    val isAniListSyncing: StateFlow<Boolean> = _isAniListSyncing.asStateFlow()
+
+    private val _anilistSyncThreshold = MutableStateFlow(settingsManager.getAniListSyncThreshold())
+    val anilistSyncThreshold: StateFlow<Int> = _anilistSyncThreshold.asStateFlow()
+
+    private val _showMergeDialog = MutableStateFlow(false)
+    val showMergeDialog: StateFlow<Boolean> = _showMergeDialog.asStateFlow()
+
+    private var pendingAnilistUpdate: Job? = null
+    private var hasSyncedOnStart = false
+
     fun getCurrentMangaCoverUrl(): String? = currentMangaCoverUrl
 
     private fun clearCachesIfNeeded(newMangaId: String) {
@@ -101,11 +125,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
     }
 
     private fun countWholeChapters(chapters: List<ChapterInfo>): Int {
+        val decimalPattern = Regex("\\d+\\.\\d+")
         var count = 0
         chapters.forEach { chapter ->
             val title = chapter.title ?: ""
-            val hasDecimal = title.contains(".") && title.contains("Chapter")
-            if (!hasDecimal) {
+            if (!decimalPattern.containsMatchIn(title)) {
                 val mainChapter = extractMainChapterNumber(title)
                 if (mainChapter > 0) count++
             }
@@ -137,6 +161,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
             _isLoading.value = true
             refreshTrackingLists()
             preloadContinueReading()
+            // Sync from AniList on app start (only once)
+            if (!hasSyncedOnStart && anilistManager.isLoggedIn()) {
+                hasSyncedOnStart = true
+                syncAnilistManga()
+            }
             val result = repository.getHomePage()
             result.fold(
                 onSuccess = { sections ->
@@ -242,6 +271,16 @@ class MainViewModel(private val context: Context) : ViewModel() {
         return trackingManager.getMangaTracking(mangaId)
     }
 
+    fun updateTrackingStatus(mangaId: String, status: com.blissless.manga.data.ReadingStatus) {
+        trackingManager.updateTrackingStatus(mangaId, status)
+        refreshTrackingLists()
+        // Send AniList status update
+        val tracking = trackingManager.getMangaTracking(mangaId)
+        if (tracking != null) {
+            updateAnilistProgressNow(tracking)
+        }
+    }
+
     fun continueFromTracking(track: com.blissless.manga.data.MangaTrack, onReady: () -> Unit) {
         val mangaId = extractUniqueMangaId(track.mangaId, track.mangaUrl)
         currentMangaId = mangaId
@@ -273,9 +312,9 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 onSuccess = { chapterData ->
                     val chapterList = chapterData.chapters
                     _chapters.value = chapterList
-                    val totalChapters = chapterData.dbChapters + chapterData.dbzChapters
+                    val totalChapters = countWholeChapters(chapterList)
                     log("CHAPTERS", "Loaded ${chapterList.size} chapters for continue reading, total: $totalChapters")
-                    trackingManager.updateTotalChapters(mangaId, totalChapters)
+                    trackingManager.updateTotalChapters(mangaId, totalChapters) 
                     refreshTrackingLists()
                     
                     // Find position by chapter URL or number match
@@ -423,7 +462,8 @@ class MainViewModel(private val context: Context) : ViewModel() {
     }
     
     fun onChapterScrollProgress(scrollPercent: Float) {
-        if (scrollPercent >= 0.9f && _selectedChapterIndex.value >= 0) {
+        val threshold = _anilistSyncThreshold.value / 100f
+        if (scrollPercent >= threshold && _selectedChapterIndex.value >= 0) {
             _isChapterRead.value = true
             _readChapterIndices.value = _readChapterIndices.value + _selectedChapterIndex.value
             currentMangaId?.let { mangaId ->
@@ -431,7 +471,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 if (chapter != null) {
                     val existing = trackingManager.getMangaTracking(mangaId)
                     val chapterNumber = extractMainChapterNumber(chapter.title ?: "")
-                    val totalChapters = _mangaDetail.value?.totalChapterCount ?: _chapters.value.size
                     if (existing == null) {
                         val track = MangaTrack(
                             mangaId = mangaId,
@@ -440,7 +479,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                             currentChapterIndex = _selectedChapterIndex.value,
                             currentChapterNumber = chapterNumber,
                             currentChapterUrl = chapter.url,
-                            totalChapters = totalChapters,
+                            totalChapters = countWholeChapters(_chapters.value),
                             status = ReadingStatus.READING,
                             lastReadTimestamp = System.currentTimeMillis(),
                             mangaUrl = currentMangaUrl ?: "https://atsu.moe/manga/$mangaId"
@@ -452,6 +491,11 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         log("TRACK", "Updated to chapter ${_selectedChapterIndex.value}")
                     }
                     refreshTrackingLists()
+                    // Debounced AniList update
+                    val tracking = trackingManager.getMangaTracking(mangaId)
+                    if (tracking != null) {
+                        scheduleAnilistProgressUpdate(tracking)
+                    }
                 }
             }
         }
@@ -463,7 +507,6 @@ class MainViewModel(private val context: Context) : ViewModel() {
             if (chapter != null) {
                 val existing = trackingManager.getMangaTracking(mangaId)
                 val chapterNumber = extractMainChapterNumber(chapter.title ?: "")
-                val totalChapters = _mangaDetail.value?.totalChapterCount ?: _chapters.value.size
                 if (existing == null) {
                     val track = MangaTrack(
                         mangaId = mangaId,
@@ -472,7 +515,7 @@ class MainViewModel(private val context: Context) : ViewModel() {
                         currentChapterIndex = _selectedChapterIndex.value,
                         currentChapterNumber = chapterNumber,
                         currentChapterUrl = chapter.url,
-                        totalChapters = totalChapters,
+                        totalChapters = countWholeChapters(_chapters.value),
                         status = ReadingStatus.READING,
                         lastReadTimestamp = System.currentTimeMillis(),
                         mangaUrl = currentMangaUrl ?: "https://atsu.moe/manga/$mangaId"
@@ -484,6 +527,44 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 refreshTrackingLists()
             }
         }
+    }
+
+    private fun scheduleAnilistProgressUpdate(track: MangaTrack) {
+        pendingAnilistUpdate?.cancel()
+        pendingAnilistUpdate = viewModelScope.launch {
+            delay(3000)
+            updateAnilistProgressNow(track)
+        }
+    }
+
+    private fun updateAnilistProgressNow(track: MangaTrack) {
+        val mediaId = track.anilistMediaId ?: extractAnilistMediaId(track.mangaId) ?: return
+        if (!anilistManager.isLoggedIn()) return
+        val anilistStatus = when (track.status) {
+            ReadingStatus.READING -> "CURRENT"
+            ReadingStatus.PLANNING -> "PLANNING"
+            ReadingStatus.COMPLETED -> "COMPLETED"
+            ReadingStatus.ON_HOLD -> "PAUSED"
+            ReadingStatus.DROPPED -> "DROPPED"
+        }
+        viewModelScope.launch {
+            val result = anilistManager.updateMediaListEntry(mediaId, track.currentChapterNumber, anilistStatus)
+            result.fold(
+                onSuccess = {
+                    Log.d("ANILIST", "Updated progress for media $mediaId to chapter ${track.currentChapterNumber}")
+                },
+                onFailure = { e ->
+                    Log.e("ANILIST", "Failed to update progress: ${e.message}")
+                }
+            )
+        }
+    }
+
+    private fun extractAnilistMediaId(mangaId: String): Int? {
+        val prefix = "anilist_"
+        return if (mangaId.startsWith(prefix)) {
+            mangaId.substringAfter(prefix).toIntOrNull()
+        } else null
     }
 
     fun updateQuery(query: String) {
@@ -531,8 +612,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
 
     fun selectManga(manga: MangaSearchResult) {
         log("SELECT", "Selected: ${manga.title}, url: ${manga.url}")
-        val baseMangaId = manga.url.substringAfter("/manga/").substringBefore("?")
-        val mangaId = extractUniqueMangaId(baseMangaId, manga.url)
+        val mangaId = manga.mangaId ?: extractUniqueMangaId(
+            manga.url.substringAfter("/manga/").substringBefore("?"),
+            manga.url
+        )
         clearCachesIfNeeded(mangaId)
         currentMangaId = mangaId
         currentMangaTitle = manga.title
@@ -619,10 +702,10 @@ class MainViewModel(private val context: Context) : ViewModel() {
                 }
             )
             
-            // Now update with real chapter count from chapters API
+            // Now update with real chapter count (excluding decimal sub-chapters)
             chaptersDeferred.await().fold(
                 onSuccess = { chapterData ->
-                    val total = chapterData.dbChapters + chapterData.dbzChapters
+                    val total = countWholeChapters(chapterData.chapters)
                     _mangaDetail.value?.let { detail ->
                         _mangaDetail.value = detail.copy(totalChapterCount = total)
                     }
@@ -647,18 +730,16 @@ class MainViewModel(private val context: Context) : ViewModel() {
                     val chapterList = chapterData.chapters
                     _chapters.value = chapterList
                     
-                    // Combined total
-                    val totalChapters = chapterData.dbChapters + chapterData.dbzChapters
-                    Log.d("CHAPTERS", "Combined: DB=${chapterData.dbChapters}, DBZ=${chapterData.dbzChapters}, total: $totalChapters")
-                    
-                    Log.d("CHAPTERS", "Loaded ${chapterList.size} chapters, total: $totalChapters")
+                    // Count only whole chapters (exclude decimal sub-chapters like 1.1, 1.2)
+                    val totalChapters = countWholeChapters(chapterList)
+                    Log.d("CHAPTERS", "Loaded ${chapterList.size} items, whole chapters: $totalChapters")
                     val baseMangaId = mangaUrl.substringAfter("/manga/").substringBefore("?")
                     val uniqueMangaId = extractUniqueMangaId(baseMangaId, mangaUrl)
                     Log.d("CHAPTERS", "Using mangaId: $uniqueMangaId")
                     clearCachesIfNeeded(uniqueMangaId)
                     Log.d("CHAPTERS", "Total chapters: $totalChapters")
                     
-                    // Update detail with split info
+                    // Update detail with correct count
                     _mangaDetail.value?.let { detail ->
                         _mangaDetail.value = detail.copy(
                             totalChapterCount = totalChapters,
@@ -808,8 +889,246 @@ class MainViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    fun getAnilistAuthUrl(): String = anilistManager.getAuthUrl()
+
+    fun isAnilistLoggedIn(): Boolean = anilistManager.isLoggedIn()
+
+    fun handleAuthRedirect(intent: Intent?) {
+        intent?.dataString?.takeIf { it.startsWith("animescraper://success") }?.let { uri ->
+            Uri.parse(uri.replace("#", "?")).getQueryParameter("access_token")?.let { token ->
+                anilistManager.saveAccessToken(token)
+                viewModelScope.launch {
+                    val nameResult = anilistManager.fetchAndCacheUserInfo()
+                    nameResult.fold(
+                        onSuccess = { name ->
+                            _anilistUsername.value = name
+                            val localTracks = trackingManager.getAllTracking()
+                            if (localTracks.isNotEmpty()) {
+                                _showMergeDialog.value = true
+                            } else {
+                                syncAnilistManga()
+                            }
+                        },
+                        onFailure = { Log.e("ANILIST", "Failed to fetch user info") }
+                    )
+                }
+            }
+        }
+    }
+
+    fun syncAnilistManga() {
+        viewModelScope.launch {
+            _isAniListSyncing.value = true
+            val result = anilistManager.getUserMangaLists()
+            result.fold(
+                onSuccess = { entries ->
+                    Log.d("ANILIST", "Fetched ${entries.size} entries from AniList")
+                },
+                onFailure = { Log.e("ANILIST", "Sync failed: ${it.message}") }
+            )
+            // Match and create tracking entries outside fold to allow suspend calls
+            val entries = anilistManager.getSyncedManga()
+            val matched = mutableListOf<com.blissless.manga.data.AniListMangaEntry>()
+            for (entry in entries) {
+                if (entry.status in setOf("CURRENT", "PLANNING", "REPEATING")) {
+                    if (entry.localMangaUrl == null) {
+                        matched.add(matchWithSearch(entry))
+                    } else if (entry.chapters == null) {
+                        matched.add(fillMissingChapters(entry))
+                    } else {
+                        matched.add(entry)
+                    }
+                } else {
+                    matched.add(entry)
+                }
+            }
+            anilistManager.createTrackingEntries(matched, trackingManager)
+            refreshTrackingLists()
+            _anilistUsername.value = anilistManager.getLoggedInUser()
+            Log.d("ANILIST", "Synced ${matched.size} manga entries")
+            _isAniListSyncing.value = false
+        }
+    }
+
+    fun overwriteAnilistWithLocal() {
+        _showMergeDialog.value = false
+        viewModelScope.launch {
+            val localTracks = trackingManager.getAllTracking()
+            for (track in localTracks) {
+                val mediaId = track.anilistMediaId ?: extractAnilistMediaId(track.mangaId)
+                if (mediaId != null && anilistManager.isLoggedIn()) {
+                    val anilistStatus = when (track.status) {
+                        ReadingStatus.READING -> "CURRENT"
+                        ReadingStatus.PLANNING -> "PLANNING"
+                        ReadingStatus.COMPLETED -> "COMPLETED"
+                        ReadingStatus.ON_HOLD -> "PAUSED"
+                        ReadingStatus.DROPPED -> "DROPPED"
+                    }
+                    anilistManager.updateMediaListEntry(mediaId, track.currentChapterNumber, anilistStatus)
+                }
+            }
+        }
+    }
+
+    fun discardLocalAndSync() {
+        _showMergeDialog.value = false
+        for (track in trackingManager.getAllTracking()) {
+            trackingManager.removeTracking(track.mangaId)
+        }
+        refreshTrackingLists()
+        syncAnilistManga()
+    }
+
+    fun mergeLocalAndAnilist() {
+        _showMergeDialog.value = false
+        viewModelScope.launch {
+            val result = anilistManager.getUserMangaLists()
+            result.fold(
+                onSuccess = { Log.d("ANILIST", "Fetched ${it.size} entries from AniList") },
+                onFailure = { Log.e("ANILIST", "Sync failed: ${it.message}") }
+            )
+            val entries = anilistManager.getSyncedManga()
+            val matched = mutableListOf<com.blissless.manga.data.AniListMangaEntry>()
+            for (entry in entries) {
+                val existing = trackingManager.getMangaTracking("anilist_${entry.mediaId}")
+                if (existing != null) {
+                    matched.add(entry)
+                } else {
+                    if (entry.status in setOf("CURRENT", "PLANNING", "REPEATING")) {
+                        if (entry.localMangaUrl == null) {
+                            matched.add(matchWithSearch(entry))
+                        } else if (entry.chapters == null) {
+                            matched.add(fillMissingChapters(entry))
+                        } else {
+                            matched.add(entry)
+                        }
+                    } else {
+                        matched.add(entry)
+                    }
+                }
+            }
+            anilistManager.createTrackingEntries(matched, trackingManager)
+            refreshTrackingLists()
+            _anilistUsername.value = anilistManager.getLoggedInUser()
+            _isAniListSyncing.value = false
+        }
+    }
+
+    private suspend fun matchWithSearch(entry: com.blissless.manga.data.AniListMangaEntry): com.blissless.manga.data.AniListMangaEntry {
+        val titlesToTry = listOfNotNull(entry.englishTitle, entry.title, entry.nativeTitle)
+        for (title in titlesToTry) {
+            try {
+                val result = repository.search(title)
+                result.getOrNull()?.let { results ->
+                    val match = results.firstOrNull { r ->
+                        r.title.equals(entry.title, ignoreCase = true) ||
+                        r.title.equals(entry.englishTitle, ignoreCase = true) ||
+                        entry.title.equals(r.title, ignoreCase = true)
+                    }
+                    if (match != null) {
+                        var matchedEntry = entry.copy(localMangaUrl = match.url)
+                        if (matchedEntry.chapters == null) {
+                            val chaptersResult = repository.getChapters(match.url)
+                            chaptersResult.fold(
+                                onSuccess = { chapterData ->
+                                    val total = countWholeChapters(chapterData.chapters)
+                                    if (total > 0) {
+                                        matchedEntry = matchedEntry.copy(chapters = total)
+                                    }
+                                },
+                                onFailure = { }
+                            )
+                        }
+                        anilistManager.updateSyncedMangaEntry(matchedEntry)
+                        return matchedEntry
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ANILIST", "Search failed for ${entry.title}: ${e.message}")
+            }
+        }
+        return entry
+    }
+
+    private suspend fun fillMissingChapters(entry: com.blissless.manga.data.AniListMangaEntry): com.blissless.manga.data.AniListMangaEntry {
+        val url = entry.localMangaUrl ?: return entry
+        val chaptersResult = repository.getChapters(url)
+        chaptersResult.fold(
+            onSuccess = { chapterData ->
+                val total = countWholeChapters(chapterData.chapters)
+                if (total > 0) {
+                    val updated = entry.copy(chapters = total)
+                    anilistManager.updateSyncedMangaEntry(updated)
+                    return updated
+                }
+            },
+            onFailure = { }
+        )
+        return entry
+    }
+
+    fun getAnilistUsername(): String? = anilistManager.getLoggedInUser()
+
+    fun logoutAniList() {
+        val allTracks = trackingManager.getAllTracking()
+        for (track in allTracks) {
+            if (track.mangaId.startsWith("anilist_") || track.anilistMediaId != null) {
+                trackingManager.removeTracking(track.mangaId)
+            }
+        }
+        anilistManager.logout()
+        _anilistUsername.value = null
+        refreshTrackingLists()
+    }
+
+    fun checkAnilistSession() {
+        if (anilistManager.isLoggedIn()) {
+            _anilistUsername.value = anilistManager.getLoggedInUser()
+        } else {
+            _anilistUsername.value = null
+        }
+    }
+
+    fun setManualChapterProgress(chapterNumber: Int) {
+        val mangaId = currentMangaId ?: return
+        val existing = trackingManager.getMangaTracking(mangaId)
+        val chapterIndex = (chapterNumber - 1).coerceAtLeast(0)
+        if (existing != null) {
+            val updated = existing.copy(
+                currentChapterIndex = chapterIndex,
+                currentChapterNumber = chapterNumber,
+                lastReadTimestamp = System.currentTimeMillis(),
+                status = ReadingStatus.READING
+            )
+            trackingManager.updateTracking(updated)
+            // Send to AniList immediately (no debounce for manual input)
+            updateAnilistProgressNow(updated)
+        } else {
+            val track = MangaTrack(
+                mangaId = mangaId,
+                title = currentMangaTitle ?: (_mangaDetail.value?.title ?: ""),
+                coverUrl = currentMangaCoverUrl,
+                currentChapterIndex = chapterIndex,
+                currentChapterNumber = chapterNumber,
+                currentChapterUrl = "",
+                totalChapters = countWholeChapters(_chapters.value).coerceAtLeast(_mangaDetail.value?.totalChapterCount ?: 0),
+                status = ReadingStatus.READING,
+                lastReadTimestamp = System.currentTimeMillis(),
+                mangaUrl = currentMangaUrl ?: "https://atsu.moe/manga/$mangaId"
+            )
+            trackingManager.updateTracking(track)
+            updateAnilistProgressNow(track)
+        }
+        refreshTrackingLists()
+    }
+
     fun clearMangaDetail() {
         _mangaDetail.value = null
+    }
+
+    fun updateAnilistSyncThreshold(percent: Int) {
+        settingsManager.setAniListSyncThreshold(percent)
+        _anilistSyncThreshold.value = percent
     }
 }
 

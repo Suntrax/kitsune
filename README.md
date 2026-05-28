@@ -8,6 +8,8 @@ A modern manga reading app for Android.
 
 ## Features
 
+- **AniList Sync** - Sync your progress and list with AniList
+- **Auto-sync** - Automatically push progress at a configurable scroll threshold (75-100%)
 - **Search** - Find manga fromatsu.moe
 - **Reader** - Read chapters with image preloading
 - **Progress Tracking** - Continue where you left off
@@ -29,19 +31,6 @@ Download the APK from [Releases](https://github.com/Suntrax/kitsune/releases) an
 - Coil for image loading
 - atsu.moe API
 - MVVM Architecture
-
-## Project Structure
-
-```
-app/src/main/java/com/blissless/manga/
-├── data/           # Repositories and data sources
-├── ui/
-│   ├── components/ # Reusable UI components
-│   ├── screens/    # App screens
-│   └── theme/      # Material theming
-├── MainActivity.kt
-└── MainViewModel.kt
-```
 
 ## Disclaimer
 
