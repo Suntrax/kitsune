@@ -4,8 +4,6 @@
 >
 > No further development will happen here. All future releases and updates are available at the new repository.
 
-The final archived version is [v1.4-kitsune](https://github.com/Suntrax/kitsune/releases/tag/v1.4-kitsune).
-
 ---
 
 A modern manga reading app for Android built with Kotlin and Jetpack Compose.
