@@ -1,6 +1,14 @@
-# Kitsune
+# Kitsune — Archived
 
-A modern manga reading app for Android.
+> **This project has been rebranded and continued as [Oni](https://github.com/Suntrax/oni).**
+>
+> No further development will happen here. All future releases and updates are available at the new repository.
+
+The final archived version is [v1.4-kitsune](https://github.com/Suntrax/kitsune/releases/tag/v1.4-kitsune).
+
+---
+
+A modern manga reading app for Android built with Kotlin and Jetpack Compose.
 
 ![Platform](https://img.shields.io/badge/Platform-Android-green.svg)
 ![Language](https://img.shields.io/badge/Language-Kotlin-blue.svg)
@@ -10,7 +18,7 @@ A modern manga reading app for Android.
 
 - **AniList Sync** - Sync your progress and list with AniList
 - **Auto-sync** - Automatically push progress at a configurable scroll threshold (75-100%)
-- **Search** - Find manga fromatsu.moe
+- **Search** - Find manga from atsu.moe
 - **Reader** - Read chapters with image preloading
 - **Progress Tracking** - Continue where you left off
 - **Explore** - Browse featured and categorized manga
@@ -20,10 +28,6 @@ A modern manga reading app for Android.
 ## Requirements
 
 - Android 8.0+ (API 26+)
-
-## Installation
-
-Download the APK from [Releases](https://github.com/Suntrax/kitsune/releases) and install.
 
 ## Tech Stack
 
